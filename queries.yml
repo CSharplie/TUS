@@ -1,0 +1,126 @@
+azure_log_analytics:
+  aas:
+    get_available_partitions: |
+      AzureDiagnostics
+      | where Category == "Engine" 
+          and OperationName == "QueryEnd"
+          and ResourceProvider == "MICROSOFT.ANALYSISSERVICES"
+      | distinct partition = strcat(substring(tostring(StartTime_t), 0, 10), "-", substring(tostring(StartTime_t), 11, 2))
+      | sort by partition desc
+    get_queries: |
+      AzureDiagnostics
+      | where Category == "Engine"
+          and OperationName == "QueryEnd"
+          and strcat(substring(tostring(StartTime_t), 0, 10), "-", substring(tostring(StartTime_t), 11, 2)) == "{partition}"
+          and ResourceProvider == "MICROSOFT.ANALYSISSERVICES"
+      | project query = toupper(TextData_s)
+          , database = DatabaseName_s
+          , date_key = substring(tostring(StartTime_t), 0, 10)
+      | summarize count = count() by database, query, date_key
+    get_scope: |
+      TODO
+  power_bi:
+    get_available_partitions: |
+      PowerBIDatasetsWorkspace
+      | where OperationName == "QueryEnd"
+          and LogAnalyticsCategory == "Query"
+      | distinct partition = strcat(substring(tostring(TimeGenerated), 0, 10), "-", substring(tostring(TimeGenerated), 11, 2))
+      | sort by partition desc
+    get_queries: |
+      PowerBIDatasetsWorkspace
+      | where OperationName == "QueryEnd"
+          and LogAnalyticsCategory == "Query"
+          and strcat(substring(tostring(TimeGenerated), 0, 10), "-", substring(tostring(TimeGenerated), 11, 2)) == "{partition}"
+      | project query = EventText
+          , workspace_server = PowerBIWorkspaceName
+          , dataset_database = ArtifactName
+          , date_key = substring(tostring(TimeGenerated), 0, 10)
+      | summarize count = count() by workspace_server, dataset_database, query, date_key
+    get_scope: |
+      PowerBIDatasetsWorkspace
+      | where isnotempty(ArtifactName)
+          and isnotempty(PowerBIWorkspaceName)
+      | distinct workspace_server = PowerBIWorkspaceName
+          , dataset_database = ArtifactName
+dmv:
+  get_tables:
+    columns:
+      - workspace_server
+      - dataset_database
+      - table_id
+      - table_name
+    query: |
+      select 
+          '{workspace_server}'
+        , '{dataset_database}'
+        , [ID]
+        , [Name] 
+      from $System.TMSCHEMA_TABLES
+  get_columns:
+    columns:
+      - workspace_server
+      - dataset_database
+      - object_type
+      - object_id
+      - table_id
+      - object_name
+      - object_alternative_name
+      - query
+    query: |
+      select 
+          '{workspace_server}'
+        , '{dataset_database}'
+        , 'COLUMN'
+        , [ID]
+        , [TableID]
+        , [ExplicitName]
+        , [InferredName]
+        , [Expression]
+      from $System.TMSCHEMA_COLUMNS
+  get_measures:
+    columns:
+      - workspace_server
+      - dataset_database
+      - object_type
+      - object_id
+      - table_id
+      - object_name
+      - query
+    query: |
+      select           
+          '{workspace_server}'
+        , '{dataset_database}'
+        , 'MEASURE'
+        , [ID]
+        , [TableID]
+        , [Name]
+        , [Expression]
+      from $System.TMSCHEMA_MEASURES
+  get_storage_dictionary:
+    columns:
+      - workspace_server
+      - dataset_database
+      - object_id
+      - dictionary_size
+    query: | 
+      select 
+          '{workspace_server}'
+        , '{dataset_database}'
+        , [COLUMN_ID]
+        , [DICTIONARY_SIZE] 
+      from $System.DISCOVER_STORAGE_TABLE_COLUMNS where [DICTIONARY_SIZE] <> 0
+  get_storage_table_segments:
+    columns:
+      - workspace_server
+      - dataset_database
+      - object_id
+      - table_id
+      - used_size
+    query: | 
+      select 
+          '{workspace_server}'
+        , '{dataset_database}'
+        , [COLUMN_ID]
+        , [TABLE_ID]
+        , [USED_SIZE] 
+      from $System.DISCOVER_STORAGE_TABLE_COLUMN_SEGMENTS
